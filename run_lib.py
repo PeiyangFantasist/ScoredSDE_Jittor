@@ -41,7 +41,7 @@ from torch.utils import tensorboard
 from torchvision.utils import make_grid, save_image
 from utils import save_checkpoint, restore_checkpoint
 import jittorvis as jv
-
+import tensorflow as tf
 FLAGS = flags.FLAGS
 
 
@@ -75,7 +75,7 @@ def train(config, workdir):
   os.makedirs(checkpoint_dir, exist_ok=True)
   os.makedirs(os.path.dirname(checkpoint_meta_dir), exist_ok=True)
   # Resume training when intermediate checkpoints are detected
-  state = restore_checkpoint(checkpoint_meta_dir, state, config.device)
+  state = restore_checkpoint(checkpoint_meta_dir, state)
   initial_step = int(state['step'])
 
   # Build data iterators
@@ -124,12 +124,11 @@ def train(config, workdir):
   logging.info("Starting training loop at step %d." % (initial_step,))
 
   for step in range(initial_step, num_train_steps + 1):
-    # Convert data to JAX arrays and normalize them. Use ._numpy() to avoid copy.
-    batch = torch.from_numpy(next(train_iter)['image']._numpy()).to(config.device).float()
+    batch = next(train_iter)['image'].float()
     batch = batch.permute(0, 3, 1, 2)
     batch = scaler(batch)
-    # Execute one training step
     loss = train_step_fn(state, batch)
+    # 9.18 改到这里
     if step % config.training.log_freq == 0:
       logging.info("step: %d, training_loss: %.5e" % (step, loss.item()))
       writer.add_scalar("training_loss", loss, step)
@@ -140,7 +139,7 @@ def train(config, workdir):
 
     # Report the loss on an evaluation dataset periodically
     if step % config.training.eval_freq == 0:
-      eval_batch = torch.from_numpy(next(eval_iter)['image']._numpy()).to(config.device).float()
+      eval_batch = next(eval_iter)['image'].float()
       eval_batch = eval_batch.permute(0, 3, 1, 2)
       eval_batch = scaler(eval_batch)
       eval_loss = eval_step_fn(state, eval_batch)
@@ -286,7 +285,7 @@ def evaluate(config,
       all_losses = []
       eval_iter = iter(eval_ds)  # pytype: disable=wrong-arg-types
       for i, batch in enumerate(eval_iter):
-        eval_batch = torch.from_numpy(batch['image']._numpy()).to(config.device).float()
+        eval_batch = batch['image'].float()
         eval_batch = eval_batch.permute(0, 3, 1, 2)
         eval_batch = scaler(eval_batch)
         eval_loss = eval_step(state, eval_batch)
@@ -308,7 +307,7 @@ def evaluate(config,
         bpd_iter = iter(ds_bpd)  # pytype: disable=wrong-arg-types
         for batch_id in range(len(ds_bpd)):
           batch = next(bpd_iter)
-          eval_batch = torch.from_numpy(batch['image']._numpy()).to(config.device).float()
+          eval_batch = batch['image'].float()
           eval_batch = eval_batch.permute(0, 3, 1, 2)
           eval_batch = scaler(eval_batch)
           bpd = likelihood_fn(score_model, eval_batch)[0]
